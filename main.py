@@ -12,7 +12,6 @@ from pathlib import Path
 # Define the assets folder path
 ASSETS_PATH = Path(__file__).parent / "assets"
 
-
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -87,10 +86,17 @@ class MainWindow(QMainWindow):
         self.renderer = vtk.vtkRenderer()
         self.vtkWidget.GetRenderWindow().AddRenderer(self.renderer)
 
+        # Set a background color to prevent artifacts
+        self.renderer.SetBackground(0.1, 0.2, 0.4)  # Dark blue background
+
         # Set a more responsive interactor style
         self.interactor = self.vtkWidget.GetRenderWindow().GetInteractor()
         interactor_style = vtk.vtkInteractorStyleTrackballCamera()
         self.interactor.SetInteractorStyle(interactor_style)
+
+        # **Initialize the interactor and perform an initial render**
+        self.interactor.Initialize()
+        self.vtkWidget.GetRenderWindow().Render()
 
         self.show()
 
@@ -129,7 +135,7 @@ class MainWindow(QMainWindow):
         self.renderer.AddActor(self.current_actor)
         self.renderer.ResetCamera()
         self.vtkWidget.GetRenderWindow().Render()
-        self.interactor.Initialize()
+        # **Interactor is already initialized, so no need to call Initialize again**
 
         # Disable previous plane widget if any
         if self.plane_widget:
