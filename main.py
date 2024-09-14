@@ -1,14 +1,23 @@
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QVBoxLayout, QWidget, QPushButton,
-    QFileDialog, QMessageBox, QHBoxLayout
+    QFileDialog, QMessageBox, QHBoxLayout, QLabel
 )
+from PyQt5.QtGui import QIcon, QPixmap
+from PyQt5.QtCore import Qt
 import vtk
 from vtk.qt.QVTKRenderWindowInteractor import QVTKRenderWindowInteractor
+import sys
+from pathlib import Path
+
+# Define the assets folder path
+ASSETS_PATH = Path(__file__).parent / "assets"
+
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("3D STL Editor with Interactive Clipping Plane and Undo")
+        self.setWindowTitle("3D STL Editor")
+        self.setWindowIcon(QIcon((ASSETS_PATH / "icon.png").as_posix()))  
         self.initUI()
 
         # Variables to store the loaded STL actor and filename
@@ -22,17 +31,27 @@ class MainWindow(QMainWindow):
         # Original PolyData for undo functionality
         self.original_polydata = None
 
-        # Flag to indicate if clipping is enabled
+        # Flags to control clipping state
         self.clipping_enabled = False
+        self.clipping_applied = False
 
     def initUI(self):
         self.centralWidget = QWidget(self)
         self.setCentralWidget(self.centralWidget)
-        self.layout = QVBoxLayout()
+
+        # Main vertical layout
+        self.main_layout = QVBoxLayout(self.centralWidget)
+
+        # Add logo at the top
+        logo_label = QLabel()
+        pixmap = QPixmap((ASSETS_PATH / "logo.png").as_posix())  
+        logo_label.setPixmap(pixmap)
+        logo_label.setAlignment(Qt.AlignCenter)
+        self.main_layout.addWidget(logo_label)
 
         # VTK Widget
         self.vtkWidget = QVTKRenderWindowInteractor(self.centralWidget)
-        self.layout.addWidget(self.vtkWidget)
+        self.main_layout.addWidget(self.vtkWidget)
 
         # Buttons Layout
         buttons_layout = QHBoxLayout()
@@ -47,20 +66,22 @@ class MainWindow(QMainWindow):
         buttons_layout.addWidget(self.enableClipButton)
         self.enableClipButton.clicked.connect(self.toggle_clipping_plane)
 
-        # Undo Clipping Button
-        self.undoButton = QPushButton("Undo Clipping")
-        self.undoButton.setEnabled(False)
-        buttons_layout.addWidget(self.undoButton)
-        self.undoButton.clicked.connect(self.undo_clipping)
+        # Apply Clipping Button
+        self.applyClipButton = QPushButton("Apply Clipping")
+        self.applyClipButton.setEnabled(False)
+        buttons_layout.addWidget(self.applyClipButton)
+        self.applyClipButton.clicked.connect(self.apply_clipping)
 
         # Export STL Button
         self.exportButton = QPushButton("Export STL")
+        self.exportButton.setEnabled(False)
         buttons_layout.addWidget(self.exportButton)
         self.exportButton.clicked.connect(self.export_stl)
 
-        self.layout.addLayout(buttons_layout)
+        self.main_layout.addLayout(buttons_layout)
 
-        self.centralWidget.setLayout(self.layout)
+        # Set the layout
+        self.centralWidget.setLayout(self.main_layout)
 
         # VTK Renderer setup
         self.renderer = vtk.vtkRenderer()
@@ -80,6 +101,7 @@ class MainWindow(QMainWindow):
         )
         if self.filename:
             self.load_stl_file(self.filename)
+            self.exportButton.setEnabled(True)
 
     def load_stl_file(self, filename):
         # Remove any existing actor
@@ -92,7 +114,8 @@ class MainWindow(QMainWindow):
         reader.Update()
 
         # Store the original polydata for undo functionality
-        self.original_polydata = reader.GetOutput()
+        self.original_polydata = vtk.vtkPolyData()
+        self.original_polydata.DeepCopy(reader.GetOutput())
 
         # Mapper
         self.mapper = vtk.vtkPolyDataMapper()
@@ -115,8 +138,9 @@ class MainWindow(QMainWindow):
 
         # Reset clipping state
         self.clipping_enabled = False
+        self.clipping_applied = False
         self.enableClipButton.setText("Enable Clipping")
-        self.undoButton.setEnabled(False)
+        self.applyClipButton.setEnabled(False)
 
     def toggle_clipping_plane(self):
         if not self.current_actor:
@@ -128,13 +152,13 @@ class MainWindow(QMainWindow):
             self.create_clipping_plane_widget()
             self.clipping_enabled = True
             self.enableClipButton.setText("Disable Clipping")
-            self.undoButton.setEnabled(True)
+            self.applyClipButton.setEnabled(True)
         else:
             # Disable the clipping plane
             self.disable_clipping_plane()
             self.clipping_enabled = False
             self.enableClipButton.setText("Enable Clipping")
-            self.undoButton.setEnabled(False)
+            self.applyClipButton.setEnabled(False)
 
     def create_clipping_plane_widget(self):
         # Create the clipping plane
@@ -144,7 +168,7 @@ class MainWindow(QMainWindow):
         self.plane_widget = vtk.vtkImplicitPlaneWidget()
         self.plane_widget.SetInteractor(self.interactor)
         self.plane_widget.SetPlaceFactor(1.25)  # Makes the widget slightly larger than the actor
-        self.plane_widget.SetInputData(self.original_polydata)
+        self.plane_widget.SetInputData(self.mapper.GetInput())
         self.plane_widget.PlaceWidget()
         self.plane_widget.AddObserver("InteractionEvent", self.on_plane_widget_interaction)
         self.plane_widget.On()
@@ -158,8 +182,12 @@ class MainWindow(QMainWindow):
             self.plane_widget.Off()
             self.plane_widget = None
 
-        # Reset the mapper to the original data
-        self.mapper.SetInputData(self.original_polydata)
+        # Reset the mapper to the original or last applied data
+        if self.clipping_applied:
+            self.mapper.SetInputData(self.clipped_polydata)
+        else:
+            self.mapper.SetInputData(self.original_polydata)
+
         self.vtkWidget.GetRenderWindow().Render()
 
     def on_plane_widget_interaction(self, caller, event):
@@ -168,7 +196,11 @@ class MainWindow(QMainWindow):
 
         # Apply the clipping plane to the mapper via a filter
         clipper = vtk.vtkClipPolyData()
-        clipper.SetInputData(self.original_polydata)
+        if self.clipping_applied:
+            # Apply clipping to the last clipped data
+            clipper.SetInputData(self.clipped_polydata)
+        else:
+            clipper.SetInputData(self.original_polydata)
         clipper.SetClipFunction(self.clipping_plane)
         clipper.Update()
 
@@ -181,15 +213,21 @@ class MainWindow(QMainWindow):
         self.mapper.SetInputData(clipper.GetOutput())
         self.vtkWidget.GetRenderWindow().Render()
 
-    def undo_clipping(self):
-        # Reset the mapper to the original data
-        self.mapper.SetInputData(self.original_polydata)
-        self.vtkWidget.GetRenderWindow().Render()
+    def apply_clipping(self):
+        # Apply the current clipping to the data
+        self.clipping_applied = True
 
-        # Reset the plane widget to initial state
-        if self.plane_widget:
-            self.plane_widget.PlaceWidget()
-            self.on_plane_widget_interaction(None, None)
+        # Save the clipped data
+        self.clipped_polydata = vtk.vtkPolyData()
+        self.clipped_polydata.DeepCopy(self.mapper.GetInput())
+
+        # Disable the clipping plane widget
+        self.disable_clipping_plane()
+
+        # Allow for further clipping
+        self.clipping_enabled = False
+        self.enableClipButton.setText("Enable Clipping")
+        self.applyClipButton.setEnabled(False)
 
     def export_stl(self):
         if not self.current_actor:
@@ -215,7 +253,9 @@ class MainWindow(QMainWindow):
         QMessageBox.information(self, "Success", "STL file exported successfully.")
 
 if __name__ == '__main__':
-    app = QApplication([])
+    app = QApplication(sys.argv)
+    # Apply a modern style
+    app.setStyle('Fusion')
     window = MainWindow()
     window.show()
-    app.exec_()
+    sys.exit(app.exec_())
