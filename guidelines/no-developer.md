@@ -2,7 +2,7 @@
 This guidelines is for users who want to use the app without the need to run the code.
 
 ## Download the app
-You can download the app from the [releases](https://github.com/amine0110/scan-duplicate-checker/releases) page. TOBECHANGED
+You can download the app from the [releases](https://github.com/amine0110/stl-viewer-editor/releases/tag/v1.0.0) page.
 
 ## Install Python
 If you don't have Python installed, you can download it from the [official website](https://www.python.org/downloads/). Or you can install it from the Microsoft Store. Please see the video below to see how to install it from the Microsoft Store.
