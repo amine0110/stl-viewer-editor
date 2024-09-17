@@ -87,7 +87,7 @@ class MainWindow(QMainWindow):
         self.vtkWidget.GetRenderWindow().AddRenderer(self.renderer)
 
         # Set a background color to prevent artifacts
-        self.renderer.SetBackground(0.1, 0.2, 0.4)  # Dark blue background
+        self.renderer.SetBackground(0, 0, 0)  # Dark blue background
 
         # Set a more responsive interactor style
         self.interactor = self.vtkWidget.GetRenderWindow().GetInteractor()
